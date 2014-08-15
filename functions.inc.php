@@ -2,7 +2,7 @@
 /* $Id */
 if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 
-function exchangeum_save_settings($settings){
+function exchangeum_save_settings($settings) {
 	global $db;
 	
 	if (is_array($settings)) foreach($settings as $key => $value){
@@ -12,7 +12,7 @@ function exchangeum_save_settings($settings){
 	needreload();
 }
 
-function exchangeum_get_settings(){
+function exchangeum_get_settings() {
 	$settings = sql('SELECT * FROM exchangeum_details', 'getAssoc', 'DB_FETCHMODE_ASSOC');
 	
 	foreach($settings as $setting => $value){
@@ -66,35 +66,29 @@ function exchangeum_configpageload() {
 	$users=isset($_REQUEST['users'])?$_REQUEST['users']:'';
 	
 	if ($display == 'extensions' || $display == 'users') {
-		if($extdisplay!=''){
-			$exchangeum = exchangeum_get_user($extdisplay);
-			$umenabled = $exchangeum['umenabled'];
-		}//get settings in to variables
-		else {
-			$defaults = exchangeum_get_settings();
-			$umenabled = $defaults['enabled'];
-		}
+		$exchangeum = exchangeum_get_user($extdisplay);
 		
 		$section = _('Exchange UM');	
-		$currentcomponent->addguielem($section, new gui_selectbox('umenabled', $currentcomponent->getoptlist('umenabled'), $umenabled, _("Status"), '', false));
+		$currentcomponent->addguielem($section, new gui_selectbox('umenabled', $currentcomponent->getoptlist('umenabled'), $exchangeum['umenabled'], _("Status"), '', false));
 	}
 }
 
-function exchangeum_get_user($umext = ''){
+function exchangeum_get_user($umext) {
 	global $db;
 	
 	if ($umext) {
 		$sql		= "SELECT * FROM exchangeum_users WHERE user = ?";
 		$settings	= $db->getRow($sql, array($umext), DB_FETCHMODE_ASSOC);
-	} else {
-		$sql		= "SELECT * FROM exchangeum_users";
-		$settings	= $db->getAll($sql, DB_FETCHMODE_ASSOC);
 	}
+	
 	db_e($settings);
 	
 	//make sure were retuning an array (even if its blank)
 	if (!is_array($settings)) {
 		$settings = array();
+		
+		$defaults = exchangeum_get_settings();
+		$settings['umenabled'] = $defaults['enabled'];
 	}
 	
 	return $settings;
@@ -142,7 +136,61 @@ function exchangeum_delete_user($umext) {
 	}
 }
 
-function exchangeum_hookGet_config($engine){
+function exchangeum_devicemailbox() {
+	global $db;
+	
+	$context = sql("SELECT data FROM sip 
+		WHERE id = (SELECT CONCAT('tr-peer-',value) FROM exchangeum_details WHERE `key` = 'trunk')
+		AND keyword = 'unsolicited_mailbox'",'getOne');
+	
+	$results = sql("SELECT users.name, users.extension, devices.id, exchangeum_users.umenabled,
+		(SELECT data FROM sip WHERE id = devices.id AND keyword = 'mailbox') AS mailbox
+		FROM users
+		INNER JOIN devices ON users.extension = devices.user
+		LEFT OUTER JOIN exchangeum_users ON users.extension = exchangeum_users.user
+		WHERE devices.tech = 'sip' ",'getAll',DB_FETCHMODE_ASSOC);
+	
+	$reload = false;
+	
+	foreach($results as $result) {
+		$mailbox = $result['umenabled'] == 'true' && $context != null ? 
+			$result['extension'].$context : $result['id'].'@device';
+			
+			if($result['mailbox'] != $mailbox) {
+				sql("UPDATE sip SET data = '".$mailbox."' WHERE id = '".$result['id']."' AND keyword = 'mailbox'");			
+				$reload = true;
+			}
+	}
+	
+	if($reload)
+		needreload();
+}
+
+function exchangeum_users2astdb() {
+	global $db;
+	global $astman;
+	
+	$defaults = exchangeum_get_settings();
+	
+	$results = sql("SELECT users.extension, exchangeum_users.user, exchangeum_users.umenabled FROM users 
+		LEFT OUTER JOIN exchangeum_users on users.extension = exchangeum_users.user
+		WHERE exchangeum_users.user IS NULL",'getAll',DB_FETCHMODE_ASSOC);
+
+	foreach($results as $result) {
+			sql("INSERT INTO exchangeum_users (user, umenabled)
+				VALUES ('".$db->escapeSimple($result['extension'])."','".$defaults['enabled']."')");
+	}
+
+	$results = sql("SELECT user, umenabled FROM exchangeum_users",'getAll',DB_FETCHMODE_ASSOC);
+	
+	foreach($results as $result) {
+		if($astman) {
+			$astman->database_put('EXCHUM', $result['user'], $result['umenabled']);
+		}
+	}
+}
+
+function exchangeum_hookGet_config($engine) {
 	global $ext;
 				
 	// ARG1 - extension
@@ -170,7 +218,7 @@ function exchangeum_hookGet_config($engine){
 	$ext->add($context, $exten, '', new ext_hangup());
 }
 
-function exchangeum_get_config($engine){
+function exchangeum_get_config($engine) {
 	global $ext;
 	
 	$fcc = new featurecode('exchangeum', 'myvoicemail');
