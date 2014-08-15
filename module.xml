@@ -1,0 +1,19 @@
+<module>
+	<rawname>exchangeum</rawname>
+	<repo>standard</repo>
+	<name>Exchange UM</name>
+	<version>2.11.0.0</version>
+	<publisher>Excalibur Partners, LLC</publisher>
+	<license>GPLv2+</license>
+	<category>Settings</category>
+	<menuitems>
+		<exchangeum>Exchange UM Settings</exchangeum>
+	</menuitems>
+	<description>Adds configurations, options and GUI for Exchange UM</description>
+	<changelog>
+		*2.11.0.0* Initial release
+	</changelog>
+	<depends>
+		<version>2.11.0</version>
+	</depends>
+</module>
