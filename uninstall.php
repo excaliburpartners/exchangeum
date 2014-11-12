@@ -3,7 +3,7 @@ if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 
 // Don't bother uninstalling feature codes, now module_uninstall does it
 
-sql('DROP TABLE IF EXISTS exchangeum_details, exchangeum_users');
+sql('DROP TABLE IF EXISTS exchangeum_details, exchangeum_users, exchangeum_orgs, exchangeum_org_trunks');
 
 global $astman;
 
