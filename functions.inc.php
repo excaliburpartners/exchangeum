@@ -330,6 +330,10 @@ function exchangeum_get_config($engine) {
 	
 	$digits = sql('SELECT value FROM exchangeum_details WHERE `key` = \'digits\'','getOne');	
 	
+	// When dialing Exchange 2013 CAS directly, with no diversion header, and the mailbox is on a 2010 
+	// or different 2013 mailbox server, the call will be blind transferred to the appropriate server.
+	// If a diversion header is provided a 302 Moved Temporarily redirect is used instead of the transfer.
+	
 	$context = 'macro-exchangeum';
 	
 	foreach(exchangeum_get_orgs() as $org)
@@ -338,9 +342,13 @@ function exchangeum_get_config($engine) {
 		
 		$ext->add($context, $exten, '', new ext_sipremoveheader('Alert-Info'));
 		$ext->add($context, $exten, '', new ext_set('INTRACOMPANYROUTE','YES'));
-		
-		// Override all dial options to prevent callers from being able to transfer
-		$ext->add($context, $exten, '', new ext_set('DIAL_OPTIONS',''));
+
+		// Override transfer context and track org id to handle Exchange blind transfers with no extension
+		$ext->add($context, $exten, '', new ext_set('_TRANSFER_CONTEXT','from-exchangeum-xfer'));
+		$ext->add($context, $exten, '', new ext_set('_EXCHORG',$org['id']));
+
+		// Override dial options to prevent callers from being able to transfer
+		$ext->add($context, $exten, '', new ext_set('_DIAL_OPTIONS',''));
 		
 		foreach(exchangeum_get_trunks($org['id']) as $trunk)
 			$ext->add($context, $exten, '', new ext_macro('dialout-trunk', $trunk['trunkid'] . ',,,' . $trunk['continue']));
@@ -357,21 +365,40 @@ function exchangeum_get_config($engine) {
 		$ext->add($context, $exten, '', new ext_sipaddheader('Diversion', '<tel:${EXCHBOX}>\;reason=no-answer\;screen=no\;privacy=off'));
 		$ext->add($context, $exten, '', new ext_goto('1', 'exch' . $org['id']));
 	}
-		
-	$ext->addInclude('from-internal-additional', 'app-exchangeum'); // Add the include from from-internal
+
+
+	$context = 'from-exchangeum-xfer';
+	$exten = 's';
 	
+	$ext->add($context, $exten, '', new ext_set('EXCHBOX','${SIPREFERREDBYHDR:-'.($digits+1).':'.$digits.'}'));
+
+	// Override caller id so Exchange will go directly to the mailbox extension
+	$ext->add($context, $exten, '', new ext_set('CALLERID(num)','${EXCHBOX}'));
+	$ext->add($context, $exten, '', new ext_goto('1', 'exch${EXCHORG}', 'macro-exchangeum'));
+
+	// Add the include for the default transfer extensions
+	$ext->addInclude($context, 'from-internal-xfer');
+	
+
 	$context = 'app-exchangeum';
-	
+
+	// Include this context in the default internal context	
+	$ext->addInclude('from-internal-additional', $context);
+
+	// My voicemail feature code
 	$fcc = new featurecode('exchangeum', 'myvoicemail');
-	$fc_my_vm= $fcc->getCodeActive();
+	$fc_my_vm = $fcc->getCodeActive();
 	unset($fcc);
 	
 	if ($fc_my_vm != '') {		
 		$ext->add($context, $fc_my_vm, '', new ext_macro('user-callerid'));
 		$ext->add($context, $fc_my_vm, '', new ext_gosubif('$["foo${DB(EXCHUM/${AMPUSER})}" != "foo"]', 'macro-exchangeum,exch${DB(EXCHUM/${AMPUSER})},1'));
+
+		// User not enabled for Exchange voicemail
 		$ext->add($context, $fc_my_vm, '', new ext_macro("outisbusy"));
 	}
 
+	// Additional feature codes
 	foreach(featurecodes_getModuleFeatures('exchangeum') as $feature)
 	{
 		$parts = explode('-', $feature['featurename']);
@@ -384,6 +411,7 @@ function exchangeum_get_config($engine) {
 		unset($fcc);
 		
 		if ($fc_dial_vm != '') {
+			// Override caller id so Exchange will prompt for mailbox extension to directly access
 			$ext->add($context, $fc_dial_vm, '', new ext_set('CALLERID(num)',''));
 			$ext->add($context, $fc_dial_vm, '', new ext_gosub('1', 'exch' . $parts[1], 'macro-exchangeum'));	
 		}
