@@ -339,6 +339,9 @@ function exchangeum_get_config($engine) {
 		$ext->add($context, $exten, '', new ext_sipremoveheader('Alert-Info'));
 		$ext->add($context, $exten, '', new ext_set('INTRACOMPANYROUTE','YES'));
 		
+		// Override all dial options to prevent callers from being able to transfer
+		$ext->add($context, $exten, '', new ext_set('DIAL_OPTIONS',''));
+		
 		foreach(exchangeum_get_trunks($org['id']) as $trunk)
 			$ext->add($context, $exten, '', new ext_macro('dialout-trunk', $trunk['trunkid'] . ',,,' . $trunk['continue']));
 		
