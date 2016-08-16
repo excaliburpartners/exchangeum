@@ -45,7 +45,7 @@ $(document).ready(function() {
 
 	// Trunks
 	$(".addtrunk").on("click",function() {
-		$("#trunks").append('<?php echo json_encode($newtrunk); ?>');	
+		$("#trunks").append(<?php echo json_encode($newtrunk); ?>);	
 		loadDropdown($("#newtrunk"), <?php echo json_encode($dropdown_trunks); ?>);
 		tableIndex($("#trunks"));
 	});

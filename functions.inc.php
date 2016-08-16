@@ -73,6 +73,7 @@ function exchangeum_get_orgs_edit($id) {
 		WHERE orgid = \"{$db->escapeSimple($id)}\"
 		ORDER BY seq",'getAll',DB_FETCHMODE_ASSOC);
 	
+	$org['trunks'] = array();
 	foreach($trunks as $trunk)
 		$org['trunks'][$trunk['seq']] = $trunk;
 
