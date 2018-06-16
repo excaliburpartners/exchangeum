@@ -146,12 +146,13 @@ function exchangeum_delete_orgs_edit($id) {
 function exchangeum_configpageinit($pagename) {
 	global $currentcomponent;
 	
-	// On a 'new' user, 'tech_hardware' is set, and there's no extension. 
-	if ( 
-		isset($_REQUEST['display'])
-		&& ($_REQUEST['display'] == 'users' || $_REQUEST['display'] == 'extensions')
-		&& isset($_REQUEST['extdisplay']) 
-	) {
+	// We only want to hook 'devices' pages.
+	if ($pagename == 'devices')  {
+		$currentcomponent->addprocessfunc('exchangeum_configprocess_device', 8);
+	}
+	
+	// We only want to hook 'users' or 'extensions' pages.
+	if ($pagename == 'users' || $pagename == 'extensions')  {
 		$currentcomponent->addoptlistitem('umenabled', '', _("Disabled: Use FreePBX Voicemail"));
 		
 		foreach(exchangeum_get_orgs() as $org)
@@ -160,7 +161,7 @@ function exchangeum_configpageinit($pagename) {
 		$currentcomponent->setoptlistopts('umenabled', 'sort', false);
 				
 		$currentcomponent->addguifunc('exchangeum_configpageload');
-		$currentcomponent->addprocessfunc('exchangeum_configprocess', 1);
+		$currentcomponent->addprocessfunc('exchangeum_configprocess', 8);
 	}
 }
 
@@ -169,15 +170,16 @@ function exchangeum_configpageload() {
 	global $currentcomponent;
 	global $display;
 	
-	$extdisplay=isset($_REQUEST['extdisplay'])?$_REQUEST['extdisplay']:'';
-	$extensions=isset($_REQUEST['extensions'])?$_REQUEST['extensions']:'';
-	$users=isset($_REQUEST['users'])?$_REQUEST['users']:'';
+	$tech_hardware = isset($_REQUEST['tech_hardware'])?$_REQUEST['tech_hardware']:null;
+	$view = isset($_REQUEST['view'])?$_REQUEST['view']:null;
+	$extdisplay = isset($_REQUEST['extdisplay'])?$_REQUEST['extdisplay']:null;
 	
-	if ($display == 'extensions' || $display == 'users') {
+	if ($tech_hardware != null || $view == 'add' || !empty($extdisplay)) {
 		$exchangeum = exchangeum_get_user($extdisplay);
+		$category = "voicemail";
 		
 		$section = _('Exchange UM');	
-		$currentcomponent->addguielem($section, new gui_selectbox('umenabled', $currentcomponent->getoptlist('umenabled'), $exchangeum['umenabled'], _("Status"), '', false));
+		$currentcomponent->addguielem($section, new gui_selectbox('umenabled', $currentcomponent->getoptlist('umenabled'), $exchangeum['umenabled'], _("Status"), '', false), $category);
 	}
 }
 
@@ -219,6 +221,21 @@ function exchangeum_configprocess() {
 	}
 }
 
+function exchangeum_configprocess_device() {
+	$action		= isset($_REQUEST['action']) ?$_REQUEST['action']:null;
+	$ext		= isset($_REQUEST['deviceuser'])?$_REQUEST['deviceuser']: null;
+	
+	if(empty($ext))
+		return;
+	
+	switch ($action) {
+		case 'add':
+		case 'edit':
+			exchangeum_devicemailbox($ext);
+ 			break;
+	}
+}
+
 function exchangeum_save_user($umext,$umenabled) {
 	global $db;
 	global $astman;
@@ -231,24 +248,7 @@ function exchangeum_save_user($umext,$umenabled) {
 		$astman->database_put('EXCHUM', $umext, $umenabled);
 	}
 	
-	$context = exchangeum_get_mwi_context($umenabled);
-	
-	$results = sql("SELECT users.extension, devices.id, exchangeum_users.umenabled,
-		(SELECT data FROM sip WHERE id = devices.id AND keyword = 'mailbox') AS mailbox
-		FROM users
-		INNER JOIN devices ON users.extension = devices.user
-		LEFT OUTER JOIN exchangeum_users ON users.extension = exchangeum_users.user
-		WHERE devices.tech = 'sip' AND users.extension = '".$db->escapeSimple($umext)."'",'getAll',DB_FETCHMODE_ASSOC);
-	
-	// Update the device mailbox context to reflect the trunk unsolicited_mailbox
-	foreach($results as $result) {
-		$mailbox = $result['umenabled'] != '' && $context != null ? 
-			$result['extension'].$context : $result['id'].'@device';
-			
-			if($result['mailbox'] != $mailbox) {
-				sql("UPDATE sip SET data = '".$mailbox."' WHERE id = '".$result['id']."' AND keyword = 'mailbox'");			
-			}
-	}
+	exchangeum_devicemailbox($umext);
 }
 
 function exchangeum_delete_user($umext) {
@@ -263,7 +263,7 @@ function exchangeum_delete_user($umext) {
 	}
 }
 
-function exchangeum_devicemailbox($ext = null) {
+function exchangeum_devicemailbox($umext = null) {
 	global $db;
 	
 	foreach(exchangeum_get_orgs() as $org)
@@ -274,7 +274,8 @@ function exchangeum_devicemailbox($ext = null) {
 		FROM users
 		INNER JOIN devices ON users.extension = devices.user
 		LEFT OUTER JOIN exchangeum_users ON users.extension = exchangeum_users.user
-		WHERE devices.tech = 'sip' ",'getAll',DB_FETCHMODE_ASSOC);
+		WHERE devices.tech = 'sip'" . (!empty($umext) ? 
+			"AND users.extension = '".$db->escapeSimple($umext)."'" : ""),'getAll',DB_FETCHMODE_ASSOC);
 	
 	$reload = false;
 	
@@ -284,7 +285,7 @@ function exchangeum_devicemailbox($ext = null) {
 			$result['extension'].$context[$result['umenabled']] : $result['id'].'@device';
 			
 			if($result['mailbox'] != $mailbox) {
-				sql("UPDATE sip SET data = '".$mailbox."' WHERE id = '".$result['id']."' AND keyword = 'mailbox'");			
+				sql("REPLACE INTO sip (id, keyword, data) VALUES ('".$result['id']."','mailbox','".$mailbox."')");
 				$reload = true;
 			}
 	}
